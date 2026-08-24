@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse
 
 from chatterbox.tts_turbo import ChatterboxTurboTTS
 
-from tts_utils import chunk_text
+from tts_utils import chunk_text, ensure_readable_audio
 
 API_KEY = os.getenv("VOICE_AGENT_KEY", "")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -64,7 +64,16 @@ def tts(
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
             f.write(ref_audio.file.read())
             ref_path = f.name
-        # validate before streaming starts — errors can't become 4xx afterwards
+        # validate before streaming starts — errors can't become 4xx afterwards;
+        # transcode formats libsndfile can't read (m4a, aac, ...) via ffmpeg
+        try:
+            usable, converted = ensure_readable_audio(ref_path)
+        except RuntimeError as e:
+            os.unlink(ref_path)
+            raise HTTPException(status_code=400, detail=str(e))
+        if converted:
+            os.unlink(ref_path)
+            ref_path = converted
         import librosa
         try:
             duration = librosa.get_duration(path=ref_path)

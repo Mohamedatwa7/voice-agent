@@ -4,11 +4,56 @@ Chatterbox generates best on short passages (~300 chars) and silently
 truncates long inputs, so long text is split on sentence boundaries and
 the per-chunk audio is concatenated.
 """
+import glob
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 
 import torch
 
 MAX_CHUNK_CHARS = 280
+
+
+def find_ffmpeg():
+    exe = shutil.which("ffmpeg")
+    if exe:
+        return exe
+    # winget installs aren't on PATH until the next login; look there directly
+    pattern = os.path.expandvars(
+        r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg*\**\bin\ffmpeg.exe"
+    )
+    hits = glob.glob(pattern, recursive=True)
+    return hits[0] if hits else None
+
+
+def ensure_readable_audio(path):
+    """Return (usable_path, temp_path_to_cleanup).
+
+    The model's loader (libsndfile) can't read m4a/aac and similar formats;
+    transcode those to WAV with ffmpeg. temp_path_to_cleanup is None when
+    the original file was usable as-is.
+    """
+    import soundfile as sf
+    try:
+        sf.info(path)
+        return path, None
+    except Exception:
+        pass
+    ffmpeg = find_ffmpeg()
+    if not ffmpeg:
+        raise RuntimeError("Unsupported audio format (and ffmpeg is not installed to convert it)")
+    out = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    out.close()
+    r = subprocess.run(
+        [ffmpeg, "-y", "-i", path, "-ar", "44100", "-ac", "1", "-c:a", "pcm_s16le", out.name],
+        capture_output=True,
+    )
+    if r.returncode != 0:
+        os.unlink(out.name)
+        raise RuntimeError("Could not decode the reference audio file")
+    return out.name, out.name
 
 
 def chunk_text(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:

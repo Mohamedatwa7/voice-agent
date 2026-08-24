@@ -13,7 +13,7 @@ import torch
 import gradio as gr
 from chatterbox.tts_turbo import ChatterboxTurboTTS
 
-from tts_utils import generate_long
+from tts_utils import ensure_readable_audio, generate_long
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 USE_NANO = DEVICE == "cpu"
@@ -52,13 +52,27 @@ def speak(text, ref_audio, temperature, seed):
     model = get_model()
     if seed and int(seed) != 0:
         set_seed(int(seed))
-    wav = generate_long(
-        model,
-        text.strip(),
-        audio_prompt_path=ref_audio,
-        temperature=temperature,
-        default_conds=DEFAULT_CONDS,
-    )
+    cleanup = None
+    if ref_audio:
+        try:
+            ref_audio, cleanup = ensure_readable_audio(ref_audio)
+        except RuntimeError as e:
+            raise gr.Error(str(e))
+    try:
+        wav = generate_long(
+            model,
+            text.strip(),
+            audio_prompt_path=ref_audio,
+            temperature=temperature,
+            default_conds=DEFAULT_CONDS,
+        )
+    finally:
+        if cleanup:
+            try:
+                import os
+                os.unlink(cleanup)
+            except OSError:
+                pass
     return (model.sr, wav.squeeze(0).numpy())
 
 
