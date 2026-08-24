@@ -49,5 +49,6 @@ This starts the TTS API server (`server.py` on port 8000), opens a Cloudflare qu
 
 Pieces:
 - `server.py` — FastAPI wrapper around the model (`POST /tts`, guarded by the key in `.backend-key`)
-- `web/` — the Vercel site: static `index.html` + `api/tts.js` serverless proxy that injects the key
+- `index.html` + `api/tts.js` — the Vercel site: static page + serverless proxy that injects the key (`.vercelignore` keeps everything else out of deployments)
 - Vercel project: `voice-agent` (env vars `BACKEND_URL`, `BACKEND_KEY`; note they're "sensitive" so `vercel env pull` shows them blank — that's normal)
+- GitHub: https://github.com/Mohamedatwa7/voice-agent — connected to the Vercel project, so pushes to `main` auto-deploy the site

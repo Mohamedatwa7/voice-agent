@@ -1,0 +1,5 @@
+# Deploy only the site: everything is excluded except index.html and api/
+*
+!index.html
+!api
+!api/**

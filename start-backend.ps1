@@ -47,7 +47,6 @@ Write-Host "Tunnel up: $url"
 
 # --- 3. Point Vercel at the tunnel and redeploy ---
 Write-Host "Updating Vercel env and redeploying..."
-Set-Location (Join-Path $PSScriptRoot "web")
 vercel env rm BACKEND_URL production --yes 2>$null
 vercel env add BACKEND_URL production --value $url --yes
 vercel env rm BACKEND_KEY production --yes 2>$null
