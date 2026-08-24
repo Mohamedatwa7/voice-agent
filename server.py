@@ -5,19 +5,18 @@ through a Cloudflare tunnel.
 
 Run:  .venv\\Scripts\\python.exe -m uvicorn server:app --host 127.0.0.1 --port 8000
 """
-import io
 import os
+import struct
 import tempfile
 import threading
 
 import torch
-import torchaudio
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import StreamingResponse
 
 from chatterbox.tts_turbo import ChatterboxTurboTTS
 
-from tts_utils import generate_long
+from tts_utils import chunk_text
 
 API_KEY = os.getenv("VOICE_AGENT_KEY", "")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -60,32 +59,60 @@ def tts(
         raise HTTPException(status_code=400, detail=f"Text too long (max {MAX_TEXT_CHARS} chars)")
 
     ref_path = None
-    try:
-        if ref_audio is not None:
-            suffix = os.path.splitext(ref_audio.filename or "ref.wav")[1] or ".wav"
-            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
-                f.write(ref_audio.file.read())
-                ref_path = f.name
+    if ref_audio is not None:
+        suffix = os.path.splitext(ref_audio.filename or "ref.wav")[1] or ".wav"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
+            f.write(ref_audio.file.read())
+            ref_path = f.name
+        # validate before streaming starts — errors can't become 4xx afterwards
+        import librosa
+        try:
+            duration = librosa.get_duration(path=ref_path)
+        except Exception:
+            os.unlink(ref_path)
+            raise HTTPException(status_code=400, detail="Could not read reference audio")
+        if duration <= 5.0:
+            os.unlink(ref_path)
+            raise HTTPException(status_code=400, detail="Reference clip must be longer than 5 seconds")
 
-        with GEN_LOCK:
-            wav = generate_long(
-                MODEL,
-                text.strip(),
-                audio_prompt_path=ref_path,
-                temperature=max(0.05, min(2.0, temperature)),
-                default_conds=DEFAULT_CONDS,
-                on_progress=lambda i, n: print(f"chunk {i + 1}/{n}"),
-            )
-    except AssertionError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    finally:
-        if ref_path:
-            try:
-                os.unlink(ref_path)
-            except OSError:
-                pass
+    chunks = chunk_text(text.strip())
+    temp = max(0.05, min(2.0, temperature))
 
-    buf = io.BytesIO()
-    # 16-bit PCM halves the payload vs float32 — matters for long texts
-    torchaudio.save(buf, wav, MODEL.sr, format="wav", encoding="PCM_S", bits_per_sample=16)
-    return Response(content=buf.getvalue(), media_type="audio/wav")
+    # Stream the WAV as it's generated: intermediaries (Cloudflare tunnel,
+    # Vercel) time out connections that stay silent for ~100s, and long
+    # texts take minutes to synthesize in full.
+    def wav_stream():
+        try:
+            yield _wav_header(MODEL.sr)
+            with GEN_LOCK:
+                if ref_path is None and DEFAULT_CONDS is not None:
+                    MODEL.conds = DEFAULT_CONDS
+                for i, chunk in enumerate(chunks):
+                    print(f"chunk {i + 1}/{len(chunks)}")
+                    wav = MODEL.generate(
+                        chunk,
+                        audio_prompt_path=ref_path if i == 0 else None,
+                        temperature=temp,
+                    )
+                    pcm = (wav.squeeze(0).clamp(-1, 1) * 32767).to(torch.int16)
+                    yield pcm.cpu().numpy().tobytes()
+        finally:
+            if ref_path:
+                try:
+                    os.unlink(ref_path)
+                except OSError:
+                    pass
+
+    return StreamingResponse(wav_stream(), media_type="audio/wav")
+
+
+def _wav_header(sr: int, channels: int = 1, bits: int = 16) -> bytes:
+    """RIFF/WAVE header with 'unknown' (max) sizes — the streaming-WAV
+    convention; decoders read PCM until the stream ends."""
+    byte_rate = sr * channels * bits // 8
+    block_align = channels * bits // 8
+    return (
+        b"RIFF" + struct.pack("<I", 0xFFFFFFFF) + b"WAVE"
+        + b"fmt " + struct.pack("<IHHIIHH", 16, 1, channels, sr, byte_rate, block_align, bits)
+        + b"data" + struct.pack("<I", 0xFFFFFFFF)
+    )
