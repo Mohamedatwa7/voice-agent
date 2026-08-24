@@ -13,6 +13,8 @@ import torch
 import gradio as gr
 from chatterbox.tts_turbo import ChatterboxTurboTTS
 
+from tts_utils import generate_long
+
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 USE_NANO = DEVICE == "cpu"
 MODEL_NAME = "Chatterbox-Nano (CPU)" if USE_NANO else "Chatterbox-Turbo (GPU)"
@@ -23,13 +25,15 @@ EVENT_TAGS = [
 ]
 
 MODEL = None
+DEFAULT_CONDS = None
 
 
 def get_model():
-    global MODEL
+    global MODEL, DEFAULT_CONDS
     if MODEL is None:
         print(f"Loading {MODEL_NAME} on {DEVICE} (first run downloads weights)...")
         MODEL = ChatterboxTurboTTS.from_pretrained(device=DEVICE, nano=USE_NANO)
+        DEFAULT_CONDS = MODEL.conds
         print("Model ready.")
     return MODEL
 
@@ -48,10 +52,12 @@ def speak(text, ref_audio, temperature, seed):
     model = get_model()
     if seed and int(seed) != 0:
         set_seed(int(seed))
-    wav = model.generate(
+    wav = generate_long(
+        model,
         text.strip(),
         audio_prompt_path=ref_audio,
         temperature=temperature,
+        default_conds=DEFAULT_CONDS,
     )
     return (model.sr, wav.squeeze(0).numpy())
 

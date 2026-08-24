@@ -51,7 +51,7 @@
   <h1>🎙️ Voice Agent</h1>
   <div class="sub">Chatterbox-Turbo TTS &middot; add expressions with the tags, optionally clone a voice from a short clip.</div>
 
-  <textarea id="text" maxlength="1000">Hi there! [chuckle] I'm your voice agent. Type anything and I'll say it out loud.</textarea>
+  <textarea id="text" maxlength="10000">Hi there! [chuckle] I'm your voice agent. Type anything and I'll say it out loud.</textarea>
 
   <div class="tags" id="tags"></div>
 
@@ -101,7 +101,9 @@ speakBtn.onclick = async () => {
   if (!t) { status.textContent = "Enter some text first."; return; }
   speakBtn.disabled = true;
   status.className = "status";
-  status.textContent = "Generating…";
+  status.textContent = t.length > 600
+    ? "Generating… long texts are synthesized in chunks, this can take a while."
+    : "Generating…";
   try {
     const fd = new FormData();
     fd.append("text", t);

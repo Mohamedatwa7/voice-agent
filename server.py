@@ -17,21 +17,26 @@ from fastapi.responses import Response
 
 from chatterbox.tts_turbo import ChatterboxTurboTTS
 
+from tts_utils import generate_long
+
 API_KEY = os.getenv("VOICE_AGENT_KEY", "")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 USE_NANO = DEVICE == "cpu"
+MAX_TEXT_CHARS = 10_000
 
 app = FastAPI(title="Voice Agent API")
 MODEL = None
+DEFAULT_CONDS = None
 # generate() mutates model state (conditionals), so serialize requests
 GEN_LOCK = threading.Lock()
 
 
 @app.on_event("startup")
 def load_model():
-    global MODEL
+    global MODEL, DEFAULT_CONDS
     print(f"Loading Chatterbox-{'Nano' if USE_NANO else 'Turbo'} on {DEVICE}...")
     MODEL = ChatterboxTurboTTS.from_pretrained(device=DEVICE, nano=USE_NANO)
+    DEFAULT_CONDS = MODEL.conds
     print("Model ready.")
 
 
@@ -51,8 +56,8 @@ def tts(
         raise HTTPException(status_code=401, detail="Invalid API key")
     if not text.strip():
         raise HTTPException(status_code=400, detail="Empty text")
-    if len(text) > 1000:
-        raise HTTPException(status_code=400, detail="Text too long (max 1000 chars)")
+    if len(text) > MAX_TEXT_CHARS:
+        raise HTTPException(status_code=400, detail=f"Text too long (max {MAX_TEXT_CHARS} chars)")
 
     ref_path = None
     try:
@@ -63,10 +68,13 @@ def tts(
                 ref_path = f.name
 
         with GEN_LOCK:
-            wav = MODEL.generate(
+            wav = generate_long(
+                MODEL,
                 text.strip(),
                 audio_prompt_path=ref_path,
                 temperature=max(0.05, min(2.0, temperature)),
+                default_conds=DEFAULT_CONDS,
+                on_progress=lambda i, n: print(f"chunk {i + 1}/{n}"),
             )
     except AssertionError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -78,5 +86,6 @@ def tts(
                 pass
 
     buf = io.BytesIO()
-    torchaudio.save(buf, wav, MODEL.sr, format="wav")
+    # 16-bit PCM halves the payload vs float32 — matters for long texts
+    torchaudio.save(buf, wav, MODEL.sr, format="wav", encoding="PCM_S", bits_per_sample=16)
     return Response(content=buf.getvalue(), media_type="audio/wav")

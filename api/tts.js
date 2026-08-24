@@ -1,6 +1,6 @@
 // Proxies TTS requests to the GPU backend (Cloudflare tunnel URL in BACKEND_URL),
 // keeping the backend key server-side.
-export const config = { api: { bodyParser: false }, maxDuration: 60 };
+export const config = { api: { bodyParser: false }, maxDuration: 300 };
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -37,5 +37,10 @@ export default async function handler(req, res) {
     "content-type",
     upstream.headers.get("content-type") || "application/octet-stream"
   );
-  res.send(Buffer.from(await upstream.arrayBuffer()));
+  // stream instead of buffering — long texts produce responses well past
+  // the 4.5MB buffered-function limit
+  for await (const chunk of upstream.body) {
+    res.write(Buffer.from(chunk));
+  }
+  res.end();
 }
