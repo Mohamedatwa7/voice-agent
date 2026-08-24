@@ -1,0 +1,17 @@
+# third-party upstream clone (recreated by setup.ps1)
+chatterbox/
+
+# environment & caches
+.venv/
+__pycache__/
+*.pyc
+
+# generated audio
+*.wav
+
+# secrets & local config
+.backend-key
+.env
+.env.*
+.vercel/
+web/.vercel/
