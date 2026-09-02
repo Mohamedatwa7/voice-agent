@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse
 
 from chatterbox.tts_turbo import ChatterboxTurboTTS
 
-from tts_utils import chunk_text, ensure_readable_audio
+from tts_utils import ensure_readable_audio, split_on_pauses
 
 API_KEY = os.getenv("VOICE_AGENT_KEY", "")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -84,7 +84,7 @@ def tts(
             os.unlink(ref_path)
             raise HTTPException(status_code=400, detail="Reference clip must be longer than 5 seconds")
 
-    chunks = chunk_text(text.strip())
+    items = split_on_pauses(text.strip())
     temp = max(0.05, min(2.0, temperature))
 
     # Stream the WAV as it's generated: intermediaries (Cloudflare tunnel,
@@ -96,13 +96,18 @@ def tts(
             with GEN_LOCK:
                 if ref_path is None and DEFAULT_CONDS is not None:
                     MODEL.conds = DEFAULT_CONDS
-                for i, chunk in enumerate(chunks):
-                    print(f"chunk {i + 1}/{len(chunks)}")
+                first_text = True
+                for i, (kind, val) in enumerate(items):
+                    print(f"chunk {i + 1}/{len(items)}")
+                    if kind == "pause":
+                        yield b"\x00\x00" * int(MODEL.sr * val)
+                        continue
                     wav = MODEL.generate(
-                        chunk,
-                        audio_prompt_path=ref_path if i == 0 else None,
+                        val,
+                        audio_prompt_path=ref_path if first_text else None,
                         temperature=temp,
                     )
+                    first_text = False
                     pcm = (wav.squeeze(0).clamp(-1, 1) * 32767).to(torch.int16)
                     yield pcm.cpu().numpy().tobytes()
         finally:

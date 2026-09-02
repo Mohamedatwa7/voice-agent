@@ -15,6 +15,26 @@ import torch
 
 MAX_CHUNK_CHARS = 280
 
+# [pause] is not a model tag — it's rendered as real silence between
+# generated segments. Consecutive tags accumulate.
+PAUSE_SECONDS = 0.6
+_PAUSE_RE = re.compile(r"\[pause\]", re.IGNORECASE)
+
+
+def split_on_pauses(text: str) -> list[tuple[str, object]]:
+    """Split text into ("text", chunk) and ("pause", seconds) items."""
+    items = []
+    parts = _PAUSE_RE.split(text)
+    for i, part in enumerate(parts):
+        if i > 0:
+            if items and items[-1][0] == "pause":
+                items[-1] = ("pause", items[-1][1] + PAUSE_SECONDS)
+            else:
+                items.append(("pause", PAUSE_SECONDS))
+        for chunk in chunk_text(part):
+            items.append(("text", chunk))
+    return items
+
 
 def find_ffmpeg():
     exe = shutil.which("ffmpeg")
@@ -90,16 +110,21 @@ def generate_long(model, text, audio_prompt_path=None, temperature=0.8,
     the model's stored conditionals. When no reference is given, restore
     `default_conds` so a clone from an earlier request doesn't leak in.
     """
-    chunks = chunk_text(text)
+    items = split_on_pauses(text)
     if audio_prompt_path is None and default_conds is not None:
         model.conds = default_conds
     wavs = []
-    for i, chunk in enumerate(chunks):
+    first_text = True
+    for i, (kind, val) in enumerate(items):
         if on_progress:
-            on_progress(i, len(chunks))
+            on_progress(i, len(items))
+        if kind == "pause":
+            wavs.append(torch.zeros(1, int(model.sr * val)))
+            continue
         wavs.append(model.generate(
-            chunk,
-            audio_prompt_path=audio_prompt_path if i == 0 else None,
+            val,
+            audio_prompt_path=audio_prompt_path if first_text else None,
             temperature=temperature,
         ))
+        first_text = False
     return torch.cat(wavs, dim=1)

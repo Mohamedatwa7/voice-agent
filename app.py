@@ -20,7 +20,7 @@ USE_NANO = DEVICE == "cpu"
 MODEL_NAME = "Chatterbox-Nano (CPU)" if USE_NANO else "Chatterbox-Turbo (GPU)"
 
 EVENT_TAGS = [
-    "[chuckle]", "[laugh]", "[sigh]", "[cough]", "[clear throat]",
+    "[pause]", "[chuckle]", "[laugh]", "[sigh]", "[cough]", "[clear throat]",
     "[sniff]", "[gasp]", "[groan]", "[shush]",
 ]
 

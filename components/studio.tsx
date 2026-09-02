@@ -6,6 +6,7 @@ import { useRef, useState } from "react";
 import { WordsPullUp } from "@/components/ui/prisma-hero";
 
 const TAGS = [
+  "[pause]",
   "[chuckle]",
   "[laugh]",
   "[sigh]",
