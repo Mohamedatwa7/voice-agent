@@ -1,6 +1,6 @@
-# Voice Agent (Chatterbox TTS)
+# Athyor (voice agent)
 
-A simple local web UI around [Resemble AI's Chatterbox](https://github.com/resemble-ai/chatterbox) text-to-speech models.
+**Athyor** is the public-facing name of this voice agent — the site never mentions the underlying model. Under the hood it's a local web UI around [Resemble AI's Chatterbox](https://github.com/resemble-ai/chatterbox) text-to-speech models.
 
 - With an NVIDIA GPU it uses **Chatterbox-Turbo** (350M, low latency).
 - On CPU it uses **Chatterbox-Nano** (110M, ~3x realtime on 8 cores).
@@ -37,7 +37,19 @@ All generated audio carries Resemble's imperceptible PerTh watermark (responsibl
 
 ## Public site (Vercel)
 
-The UI is also deployed at **https://voice-agent-henna-eight.vercel.app** — the page is always up, but speech generation runs on this PC's GPU, reached through a Cloudflare tunnel.
+The public site is a Next.js 15 + TypeScript + Tailwind app (shadcn project structure) at the repo root:
+
+- `app/` — pages (`page.tsx` = hero + studio) and the API proxy route (`app/api/tts/route.ts`)
+- `components/ui/` — shadcn-convention UI components (`prisma-hero.tsx` holds the Athyor hero + `WordsPullUp` text animations)
+- `components/studio.tsx` — the TTS studio (text, expression tags, temperature, voice cloning)
+- `lib/utils.ts`, `components.json`, `tailwind.config.ts` — shadcn/Tailwind plumbing
+
+```powershell
+npm install
+npm run dev   # http://localhost:3000 — .env.local points /api/tts at the local backend
+```
+
+It is deployed at **https://voice-agent-henna-eight.vercel.app** — the page is always up, but speech generation runs on this PC's GPU, reached through a Cloudflare tunnel.
 
 To bring the backend online:
 
@@ -49,6 +61,6 @@ This starts the TTS API server (`server.py` on port 8000), opens a Cloudflare qu
 
 Pieces:
 - `server.py` — FastAPI wrapper around the model (`POST /tts`, guarded by the key in `.backend-key`)
-- `index.html` + `api/tts.js` — the Vercel site: static page + serverless proxy that injects the key (`.vercelignore` keeps everything else out of deployments)
+- Next.js app (`app/`, `components/`) — the Vercel site: Athyor UI + `app/api/tts/route.ts`, a streaming proxy that injects the key (`.vercelignore` keeps the Python tooling out of deployments)
 - Vercel project: `voice-agent` (env vars `BACKEND_URL`, `BACKEND_KEY`; note they're "sensitive" so `vercel env pull` shows them blank — that's normal)
 - GitHub: https://github.com/Mohamedatwa7/voice-agent — connected to the Vercel project, so pushes to `main` auto-deploy the site

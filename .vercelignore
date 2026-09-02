@@ -1,5 +1,8 @@
-# Deploy only the site: everything is excluded except index.html and api/
-*
-!index.html
-!api
-!api/**
+# Deploy only the Next.js site — keep the local Python/TTS tooling out of deployments
+chatterbox/
+.venv/
+__pycache__/
+*.py
+*.wav
+*.ps1
+.backend-key

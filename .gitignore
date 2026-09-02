@@ -9,6 +9,12 @@ __pycache__/
 # generated audio
 *.wav
 
+# web app
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
 # secrets & local config
 .backend-key
 .env
